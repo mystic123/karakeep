@@ -45,18 +45,14 @@ import BookmarkTextMarkdown from "./BookmarkTextMarkdown";
 import { NotePreview } from "./NotePreview";
 import TagPill from "./TagPill";
 
-async function ensurePdfTitle(fileUri: string, fallbackTitle: string) {
+async function setPdfTitle(fileUri: string, title: string) {
   const base64 = await FileSystem.readAsStringAsync(fileUri, {
     encoding: FileSystem.EncodingType.Base64,
   });
   const pdfDoc = await PDFDocument.load(
     Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)),
   );
-  const existingTitle = pdfDoc.getTitle();
-  if (!existingTitle || existingTitle.trim().length === 0) {
-    pdfDoc.setTitle(fallbackTitle);
-  }
-  // Always re-save to consolidate duplicate /Title entries
+  pdfDoc.setTitle(title);
   const modified = await pdfDoc.saveAsBase64();
   await FileSystem.writeAsStringAsync(fileUri, modified, {
     encoding: FileSystem.EncodingType.Base64,
@@ -163,7 +159,7 @@ function ActionBar({ bookmark }: { bookmark: ZBookmark }) {
                     if (downloadResult.status === 200) {
                       const pdfTitle = bookmark.title || title;
                       if (pdfTitle) {
-                        await ensurePdfTitle(downloadResult.uri, pdfTitle);
+                        await setPdfTitle(downloadResult.uri, pdfTitle);
                       }
                       await Sharing.shareAsync(downloadResult.uri, {
                         mimeType: "application/pdf",
@@ -228,7 +224,9 @@ function ActionBar({ bookmark }: { bookmark: ZBookmark }) {
               }
             }
           } else if (bookmark.content.assetType === "pdf") {
-            if (await Sharing.isAvailableAsync()) {
+            const sourceUrl = bookmark.content.sourceUrl;
+            const sharePdf = async () => {
+              if (!(await Sharing.isAvailableAsync())) return;
               const assetUrl = `${settings.address}/api/assets/${bookmark.content.assetId}`;
               const rawName = bookmark.content.fileName || "document";
               const fileName = rawName.endsWith(".pdf")
@@ -249,7 +247,7 @@ function ActionBar({ bookmark }: { bookmark: ZBookmark }) {
 
               if (downloadResult.status === 200) {
                 if (bookmark.title) {
-                  await ensurePdfTitle(downloadResult.uri, bookmark.title);
+                  await setPdfTitle(downloadResult.uri, bookmark.title);
                 }
                 await Sharing.shareAsync(downloadResult.uri, {
                   mimeType: "application/pdf",
@@ -261,6 +259,23 @@ function ActionBar({ bookmark }: { bookmark: ZBookmark }) {
               } else {
                 throw new Error("Failed to download PDF");
               }
+            };
+
+            if (sourceUrl) {
+              Alert.alert("Share", "How would you like to share this PDF?", [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Share URL",
+                  onPress: () =>
+                    Share.share({ url: sourceUrl, message: sourceUrl }),
+                },
+                {
+                  text: "Share PDF",
+                  onPress: sharePdf,
+                },
+              ]);
+            } else {
+              await sharePdf();
             }
           }
           break;
