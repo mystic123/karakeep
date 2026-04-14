@@ -11,6 +11,7 @@ import {
 import * as Clipboard from "expo-clipboard";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Haptics from "expo-haptics";
+import { PDFDocument } from "pdf-lib";
 import { Image } from "expo-image";
 import { router, useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
@@ -43,6 +44,24 @@ import BookmarkAssetImage from "./BookmarkAssetImage";
 import BookmarkTextMarkdown from "./BookmarkTextMarkdown";
 import { NotePreview } from "./NotePreview";
 import TagPill from "./TagPill";
+
+async function ensurePdfTitle(fileUri: string, fallbackTitle: string) {
+  const base64 = await FileSystem.readAsStringAsync(fileUri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  const pdfDoc = await PDFDocument.load(
+    Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)),
+  );
+  const existingTitle = pdfDoc.getTitle();
+  if (!existingTitle || existingTitle.trim().length === 0) {
+    pdfDoc.setTitle(fallbackTitle);
+  }
+  // Always re-save to consolidate duplicate /Title entries
+  const modified = await pdfDoc.saveAsBase64();
+  await FileSystem.writeAsStringAsync(fileUri, modified, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+}
 
 function ActionBar({ bookmark }: { bookmark: ZBookmark }) {
   const { toast } = useToast();
@@ -142,6 +161,10 @@ function ActionBar({ bookmark }: { bookmark: ZBookmark }) {
                     );
 
                     if (downloadResult.status === 200) {
+                      const pdfTitle = bookmark.title || title;
+                      if (pdfTitle) {
+                        await ensurePdfTitle(downloadResult.uri, pdfTitle);
+                      }
                       await Sharing.shareAsync(downloadResult.uri, {
                         mimeType: "application/pdf",
                         UTI: "com.adobe.pdf",
@@ -225,11 +248,13 @@ function ActionBar({ bookmark }: { bookmark: ZBookmark }) {
               );
 
               if (downloadResult.status === 200) {
+                if (bookmark.title) {
+                  await ensurePdfTitle(downloadResult.uri, bookmark.title);
+                }
                 await Sharing.shareAsync(downloadResult.uri, {
                   mimeType: "application/pdf",
                   UTI: "com.adobe.pdf",
                 });
-                // Clean up the temporary file
                 await FileSystem.deleteAsync(downloadResult.uri, {
                   idempotent: true,
                 });
