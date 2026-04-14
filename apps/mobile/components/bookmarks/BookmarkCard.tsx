@@ -122,9 +122,12 @@ function ActionBar({ bookmark }: { bookmark: ZBookmark }) {
                 onPress: async () => {
                   try {
                     const assetUrl = `${settings.address}/api/assets/${pdfAsset.id}`;
-                    const fileName =
+                    const rawName =
                       pdfAsset.fileName ||
-                      `${bookmark.title || title || "document"}.pdf`;
+                      `${bookmark.title || title || "document"}`;
+                    const fileName = rawName.endsWith(".pdf")
+                      ? rawName
+                      : `${rawName}.pdf`;
                     const fileUri = `${FileSystem.documentDirectory}${fileName}`;
 
                     const downloadResult = await FileSystem.downloadAsync(
@@ -204,7 +207,10 @@ function ActionBar({ bookmark }: { bookmark: ZBookmark }) {
           } else if (bookmark.content.assetType === "pdf") {
             if (await Sharing.isAvailableAsync()) {
               const assetUrl = `${settings.address}/api/assets/${bookmark.content.assetId}`;
-              const fileName = bookmark.content.fileName || "document.pdf";
+              const rawName = bookmark.content.fileName || "document";
+              const fileName = rawName.endsWith(".pdf")
+                ? rawName
+                : `${rawName}.pdf`;
               const fileUri = `${FileSystem.documentDirectory}${fileName}`;
 
               const downloadResult = await FileSystem.downloadAsync(
