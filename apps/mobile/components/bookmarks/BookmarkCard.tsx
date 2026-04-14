@@ -105,41 +105,63 @@ function ActionBar({ bookmark }: { bookmark: ZBookmark }) {
     try {
       switch (bookmark.content.type) {
         case BookmarkTypes.LINK: {
+          const url = bookmark.content.url;
+          const title = bookmark.content.title;
           const pdfAsset = bookmark.assets.find((a) => a.assetType === "pdf");
           if (pdfAsset && (await Sharing.isAvailableAsync())) {
-            const assetUrl = `${settings.address}/api/assets/${pdfAsset.id}`;
-            const fileName =
-              pdfAsset.fileName ||
-              `${bookmark.title || bookmark.content.title || "document"}.pdf`;
-            const fileUri = `${FileSystem.documentDirectory}${fileName}`;
-
-            const downloadResult = await FileSystem.downloadAsync(
-              assetUrl,
-              fileUri,
+            Alert.alert("Share", "How would you like to share this bookmark?", [
+              { text: "Cancel", style: "cancel" },
               {
-                headers: buildApiHeaders(
-                  settings.apiKey,
-                  settings.customHeaders,
-                ),
+                text: "Share URL",
+                onPress: async () => {
+                  await Share.share({ url, message: url });
+                },
               },
-            );
+              {
+                text: "Share PDF",
+                onPress: async () => {
+                  try {
+                    const assetUrl = `${settings.address}/api/assets/${pdfAsset.id}`;
+                    const fileName =
+                      pdfAsset.fileName ||
+                      `${bookmark.title || title || "document"}.pdf`;
+                    const fileUri = `${FileSystem.documentDirectory}${fileName}`;
 
-            if (downloadResult.status === 200) {
-              await Sharing.shareAsync(downloadResult.uri, {
-                mimeType: "application/pdf",
-                UTI: "com.adobe.pdf",
-              });
-              await FileSystem.deleteAsync(downloadResult.uri, {
-                idempotent: true,
-              });
-            } else {
-              throw new Error("Failed to download PDF");
-            }
+                    const downloadResult = await FileSystem.downloadAsync(
+                      assetUrl,
+                      fileUri,
+                      {
+                        headers: buildApiHeaders(
+                          settings.apiKey,
+                          settings.customHeaders,
+                        ),
+                      },
+                    );
+
+                    if (downloadResult.status === 200) {
+                      await Sharing.shareAsync(downloadResult.uri, {
+                        mimeType: "application/pdf",
+                        UTI: "com.adobe.pdf",
+                      });
+                      await FileSystem.deleteAsync(downloadResult.uri, {
+                        idempotent: true,
+                      });
+                    } else {
+                      throw new Error("Failed to download PDF");
+                    }
+                  } catch (error) {
+                    console.error("Share PDF error:", error);
+                    toast({
+                      message: "Failed to share PDF",
+                      variant: "destructive",
+                      showProgress: false,
+                    });
+                  }
+                },
+              },
+            ]);
           } else {
-            await Share.share({
-              url: bookmark.content.url,
-              message: bookmark.content.url,
-            });
+            await Share.share({ url, message: url });
           }
           break;
         }
