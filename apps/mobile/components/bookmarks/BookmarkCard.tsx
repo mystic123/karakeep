@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -21,13 +22,22 @@ import { useMenuIconColors } from "@/lib/useMenuIconColors";
 import { buildApiHeaders } from "@/lib/utils";
 import { MenuView } from "@react-native-menu/menu";
 import { useQuery } from "@tanstack/react-query";
-import { Ellipsis, ShareIcon, Star } from "lucide-react-native";
+import * as IntentLauncher from "expo-intent-launcher";
+import {
+  BookOpen,
+  Ellipsis,
+  Globe,
+  ListX,
+  ShareIcon,
+  Star,
+} from "lucide-react-native";
 
 import type { ZBookmark } from "@karakeep/shared/types/bookmarks";
 import {
   useDeleteBookmark,
   useUpdateBookmark,
 } from "@karakeep/shared-react/hooks/bookmarks";
+import { useRemoveBookmarkFromList } from "@karakeep/shared-react/hooks/lists";
 import { useWhoAmI } from "@karakeep/shared-react/hooks/users";
 import { useTRPC } from "@karakeep/shared-react/trpc";
 import { BookmarkTypes } from "@karakeep/shared/types/bookmarks";
@@ -59,11 +69,18 @@ async function setPdfTitle(fileUri: string, title: string) {
   });
 }
 
-function ActionBar({ bookmark }: { bookmark: ZBookmark }) {
+function ActionBar({
+  bookmark,
+  listId,
+}: {
+  bookmark: ZBookmark;
+  listId?: string;
+}) {
   const { toast } = useToast();
   const { settings } = useAppSettings();
   const { data: currentUser } = useWhoAmI();
   const { menuIconColor, destructiveMenuIconColor } = useMenuIconColors();
+  const [isOpeningPdf, setIsOpeningPdf] = useState(false);
 
   // Check if the current user owns this bookmark
   const isOwner = currentUser?.id === bookmark.userId;
@@ -90,6 +107,17 @@ function ActionBar({ bookmark }: { bookmark: ZBookmark }) {
   const { mutate: favouriteBookmark, variables } = useUpdateBookmark({
     onError,
   });
+
+  const { mutate: removeFromList, isPending: isRemoveFromListPending } =
+    useRemoveBookmarkFromList({
+      onSuccess: () => {
+        toast({
+          message: "Removed from list!",
+          showProgress: false,
+        });
+      },
+      onError,
+    });
 
   const { mutate: archiveBookmark, isPending: isArchivePending } =
     useUpdateBookmark({
@@ -352,9 +380,89 @@ function ActionBar({ bookmark }: { bookmark: ZBookmark }) {
     );
   }
 
+  // Determine if this bookmark has a PDF we can open in NeoReader
+  const pdfAssetInfo = (() => {
+    if (
+      bookmark.content.type === BookmarkTypes.ASSET &&
+      bookmark.content.assetType === "pdf"
+    ) {
+      return {
+        assetId: bookmark.content.assetId,
+        fileName: bookmark.content.fileName,
+      };
+    }
+    if (bookmark.content.type === BookmarkTypes.LINK) {
+      const pdfAsset = bookmark.assets.find((a) => a.assetType === "pdf");
+      if (pdfAsset) {
+        return { assetId: pdfAsset.id, fileName: pdfAsset.fileName };
+      }
+    }
+    return null;
+  })();
+
+  const openInNeoReader = async () => {
+    if (!pdfAssetInfo) return;
+    setIsOpeningPdf(true);
+    try {
+      const assetUrl = `${settings.address}/api/assets/${pdfAssetInfo.assetId}`;
+      const rawName = pdfAssetInfo.fileName || "document";
+      const fileName = rawName.endsWith(".pdf") ? rawName : `${rawName}.pdf`;
+      const fileUri = `${FileSystem.documentDirectory}${fileName}`;
+
+      const downloadResult = await FileSystem.downloadAsync(assetUrl, fileUri, {
+        headers: buildApiHeaders(settings.apiKey, settings.customHeaders),
+      });
+
+      if (downloadResult.status !== 200) {
+        throw new Error(`Download failed with status ${downloadResult.status}`);
+      }
+
+      if (bookmark.title) {
+        await setPdfTitle(downloadResult.uri, bookmark.title);
+      }
+
+      const contentUri = await FileSystem.getContentUriAsync(
+        downloadResult.uri,
+      );
+      await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
+        data: contentUri,
+        type: "application/pdf",
+        packageName: "com.onyx.kreader",
+        flags: 0x00000001, // FLAG_GRANT_READ_URI_PERMISSION
+      });
+
+      await FileSystem.deleteAsync(downloadResult.uri, { idempotent: true });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Unknown error";
+      Alert.alert("NeoReader Error", msg);
+    } finally {
+      setIsOpeningPdf(false);
+    }
+  };
+
+  const bookmarkUrl =
+    bookmark.content.type === BookmarkTypes.LINK
+      ? bookmark.content.url
+      : bookmark.content.type === BookmarkTypes.ASSET
+        ? bookmark.content.sourceUrl
+        : null;
+
+  const openInBrowser = async () => {
+    if (!bookmarkUrl) return;
+    try {
+      await Linking.openURL(bookmarkUrl);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Unknown error";
+      Alert.alert("Browser Error", msg);
+    }
+  };
+
   return (
     <View className="flex flex-row gap-4">
-      {(isArchivePending || isDeletionPending) && <ActivityIndicator />}
+      {(isArchivePending ||
+        isDeletionPending ||
+        isRemoveFromListPending ||
+        isOpeningPdf) && <ActivityIndicator />}
       {isOwner && (
         <Pressable
           onPress={() => {
@@ -370,6 +478,41 @@ function ActionBar({ bookmark }: { bookmark: ZBookmark }) {
           ) : (
             <Star color="gray" />
           )}
+        </Pressable>
+      )}
+
+      {pdfAssetInfo && (
+        <Pressable
+          disabled={isOpeningPdf}
+          onPress={() => {
+            Haptics.selectionAsync();
+            openInNeoReader();
+          }}
+        >
+          <BookOpen color={isOpeningPdf ? "lightgray" : "gray"} />
+        </Pressable>
+      )}
+
+      {bookmarkUrl && (
+        <Pressable
+          onPress={() => {
+            Haptics.selectionAsync();
+            openInBrowser();
+          }}
+        >
+          <Globe color="gray" />
+        </Pressable>
+      )}
+
+      {listId && (
+        <Pressable
+          disabled={isRemoveFromListPending}
+          onPress={() => {
+            Haptics.selectionAsync();
+            removeFromList({ bookmarkId: bookmark.id, listId });
+          }}
+        >
+          <ListX color="gray" />
         </Pressable>
       )}
 
@@ -439,9 +582,11 @@ function TagList({ bookmark }: { bookmark: ZBookmark }) {
 function LinkCard({
   bookmark,
   onOpenBookmark,
+  listId,
 }: {
   bookmark: ZBookmark;
   onOpenBookmark: () => void;
+  listId?: string;
 }) {
   const { settings } = useAppSettings();
   const { data: currentUser } = useWhoAmI();
@@ -517,7 +662,7 @@ function LinkCard({
           <Text className="my-auto shrink" numberOfLines={1}>
             {parsedUrl.host}
           </Text>
-          <ActionBar bookmark={bookmark} />
+          <ActionBar bookmark={bookmark} listId={listId} />
         </View>
       </View>
     </View>
@@ -527,9 +672,11 @@ function LinkCard({
 function TextCard({
   bookmark,
   onOpenBookmark,
+  listId,
 }: {
   bookmark: ZBookmark;
   onOpenBookmark: () => void;
+  listId?: string;
 }) {
   const { settings } = useAppSettings();
   const { data: currentUser } = useWhoAmI();
@@ -561,7 +708,7 @@ function TextCard({
       <Divider orientation="vertical" className="mt-2 h-0.5 w-full" />
       <View className="flex flex-row justify-between p-2">
         <View />
-        <ActionBar bookmark={bookmark} />
+        <ActionBar bookmark={bookmark} listId={listId} />
       </View>
     </View>
   );
@@ -570,9 +717,11 @@ function TextCard({
 function AssetCard({
   bookmark,
   onOpenBookmark,
+  listId,
 }: {
   bookmark: ZBookmark;
   onOpenBookmark: () => void;
+  listId?: string;
 }) {
   const { settings } = useAppSettings();
   const { data: currentUser } = useWhoAmI();
@@ -615,7 +764,7 @@ function AssetCard({
         <Divider orientation="vertical" className="mt-2 h-0.5 w-full" />
         <View className="mt-2 flex flex-row justify-between px-2 pb-2">
           <View />
-          <ActionBar bookmark={bookmark} />
+          <ActionBar bookmark={bookmark} listId={listId} />
         </View>
       </View>
     </View>
@@ -624,8 +773,10 @@ function AssetCard({
 
 export default function BookmarkCard({
   bookmark: initialData,
+  listId,
 }: {
   bookmark: ZBookmark;
+  listId?: string;
 }) {
   const api = useTRPC();
   const { data: bookmark } = useQuery(
@@ -677,6 +828,7 @@ export default function BookmarkCard({
         <LinkCard
           bookmark={bookmark}
           onOpenBookmark={() => onOpenBookmark(bookmark)}
+          listId={listId}
         />
       );
       break;
@@ -685,6 +837,7 @@ export default function BookmarkCard({
         <TextCard
           bookmark={bookmark}
           onOpenBookmark={() => onOpenBookmark(bookmark)}
+          listId={listId}
         />
       );
       break;
@@ -693,6 +846,7 @@ export default function BookmarkCard({
         <AssetCard
           bookmark={bookmark}
           onOpenBookmark={() => onOpenBookmark(bookmark)}
+          listId={listId}
         />
       );
       break;

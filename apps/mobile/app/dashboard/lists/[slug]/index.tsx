@@ -42,6 +42,7 @@ export default function ListView() {
         <FullPageError error={error.message} onRetry={() => refetch()} />
       ) : list && !isSettingsLoading ? (
         <UpdatingBookmarkList
+          listId={list.id}
           query={{
             listId: list.id,
             archived,

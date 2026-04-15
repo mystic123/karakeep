@@ -11,9 +11,11 @@ import BookmarkList from "./BookmarkList";
 export default function UpdatingBookmarkList({
   query,
   header,
+  listId,
 }: {
   query: Omit<ZGetBookmarksRequest, "sortOrder" | "includeContent">; // Sort order is not supported in mobile yet
   header?: React.ReactElement;
+  listId?: string;
 }) {
   const api = useTRPC();
   const queryClient = useQueryClient();
@@ -50,6 +52,7 @@ export default function UpdatingBookmarkList({
 
   return (
     <BookmarkList
+      listId={listId}
       bookmarks={data.pages
         .flatMap((p) => p.bookmarks)
         .filter((b) => b.content.type != BookmarkTypes.UNKNOWN)}

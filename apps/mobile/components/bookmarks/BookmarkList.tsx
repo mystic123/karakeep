@@ -16,6 +16,7 @@ export default function BookmarkList({
   fetchNextPage,
   isFetchingNextPage,
   isRefreshing,
+  listId,
 }: {
   bookmarks: ZBookmark[];
   onRefresh: () => void;
@@ -23,6 +24,7 @@ export default function BookmarkList({
   fetchNextPage?: () => void;
   header?: React.ReactElement;
   isFetchingNextPage?: boolean;
+  listId?: string;
 }) {
   const flatListRef = useRef(null);
   useScrollToTop(flatListRef);
@@ -38,7 +40,7 @@ export default function BookmarkList({
         marginHorizontal: 15,
         marginBottom: 15,
       }}
-      renderItem={(b) => <BookmarkCard bookmark={b.item} />}
+      renderItem={(b) => <BookmarkCard bookmark={b.item} listId={listId} />}
       ListEmptyComponent={
         <EmptyState
           icon={Bookmark}
