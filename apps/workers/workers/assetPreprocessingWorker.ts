@@ -1,6 +1,14 @@
 import os from "os";
 import { and, eq } from "drizzle-orm";
 import { workerStatsCounter } from "metrics";
+import {
+  PDFDict,
+  PDFDocument,
+  PDFHexString,
+  PDFName,
+  PDFRef,
+  PDFString,
+} from "pdf-lib";
 import PDFParser from "pdf2json";
 import { fromBuffer } from "pdf2pic";
 import { createWorker } from "tesseract.js";
@@ -318,6 +326,43 @@ async function extractAndSaveImageText(
   return true;
 }
 
+async function extractPdfOutlineTitle(
+  buffer: Buffer,
+): Promise<string | null> {
+  try {
+    const doc = await PDFDocument.load(buffer);
+    const outlinesRef = doc.catalog.get(PDFName.of("Outlines"));
+    if (!outlinesRef) return null;
+
+    const outlines = doc.catalog.context.lookup(outlinesRef);
+    if (!(outlines instanceof PDFDict)) return null;
+
+    const firstRef = outlines.get(PDFName.of("First"));
+    if (!firstRef) return null;
+
+    const firstItem = doc.catalog.context.lookup(firstRef);
+    if (!(firstItem instanceof PDFDict)) return null;
+
+    const titleObj = firstItem.get(PDFName.of("Title"));
+    if (!titleObj) return null;
+
+    let title: string | null = null;
+    if (titleObj instanceof PDFRef) {
+      const resolved = doc.catalog.context.lookup(titleObj);
+      if (resolved instanceof PDFString) title = resolved.decodeText();
+      else if (resolved instanceof PDFHexString) title = resolved.decodeText();
+    } else if (titleObj instanceof PDFString) {
+      title = titleObj.decodeText();
+    } else if (titleObj instanceof PDFHexString) {
+      title = titleObj.decodeText();
+    }
+
+    return title && title.trim().length > 0 ? title.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 async function extractAndSavePDFText(
   jobId: string,
   asset: Buffer,
@@ -352,6 +397,28 @@ async function extractAndSavePDFText(
       metadata: pdfParse.metadata ? JSON.stringify(pdfParse.metadata) : null,
     })
     .where(eq(bookmarkAssets.id, bookmark.id));
+
+  // Try to extract title from PDF outline and update bookmark title
+  // if the current title looks like a filename (e.g. "2505.03275")
+  const infoTitle = pdfParse.metadata?.Title as unknown as
+    | string
+    | undefined;
+  const outlineTitle = await extractPdfOutlineTitle(asset);
+  const pdfTitle = (infoTitle && infoTitle.trim()) || outlineTitle;
+  if (pdfTitle) {
+    const currentTitle = bookmark.title;
+    const fileName = bookmark.asset.fileName;
+    if (!currentTitle || currentTitle === fileName) {
+      logger.info(
+        `[assetPreprocessing][${jobId}] Setting bookmark title from PDF: "${pdfTitle}"`,
+      );
+      await db
+        .update(bookmarks)
+        .set({ title: pdfTitle })
+        .where(eq(bookmarks.id, bookmark.id));
+    }
+  }
+
   return true;
 }
 
