@@ -225,10 +225,12 @@ function ActionBar({ bookmark }: { bookmark: ZBookmark }) {
             }
           } else if (bookmark.content.assetType === "pdf") {
             const sourceUrl = bookmark.content.sourceUrl;
+            const assetId = bookmark.content.assetId;
+            const contentFileName = bookmark.content.fileName;
             const sharePdf = async () => {
               if (!(await Sharing.isAvailableAsync())) return;
-              const assetUrl = `${settings.address}/api/assets/${bookmark.content.assetId}`;
-              const rawName = bookmark.content.fileName || "document";
+              const assetUrl = `${settings.address}/api/assets/${assetId}`;
+              const rawName = contentFileName || "document";
               const fileName = rawName.endsWith(".pdf")
                 ? rawName
                 : `${rawName}.pdf`;

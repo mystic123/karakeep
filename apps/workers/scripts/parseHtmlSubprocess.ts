@@ -1,4 +1,4 @@
-import { Readability } from "@mozilla/readability";
+import { DefuddleClass } from "defuddle/node";
 import DOMPurify from "dompurify";
 import { HttpProxyAgent } from "http-proxy-agent";
 import { HttpsProxyAgent } from "https-proxy-agent";
@@ -128,15 +128,16 @@ function extractReadableContent(
   const dom = new JSDOM(htmlContent, { url, virtualConsole });
   try {
     normalizeLazyLoadImages(dom.window.document);
-    const readableContent = new Readability(dom.window.document).parse();
-    if (!readableContent || typeof readableContent.content !== "string") {
+    const defuddled = new DefuddleClass(dom.window.document, { url });
+    const result = defuddled.parse();
+    if (!result.content || typeof result.content !== "string") {
       return null;
     }
 
     const purifyWindow = new JSDOM("").window;
     try {
       const purify = DOMPurify(purifyWindow);
-      const purifiedHTML = purify.sanitize(readableContent.content);
+      const purifiedHTML = purify.sanitize(result.content);
       return { content: purifiedHTML };
     } finally {
       purifyWindow.close();

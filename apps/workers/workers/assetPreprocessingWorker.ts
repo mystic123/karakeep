@@ -326,9 +326,7 @@ async function extractAndSaveImageText(
   return true;
 }
 
-async function extractPdfOutlineTitle(
-  buffer: Buffer,
-): Promise<string | null> {
+async function extractPdfOutlineTitle(buffer: Buffer): Promise<string | null> {
   try {
     const doc = await PDFDocument.load(buffer);
     const outlinesRef = doc.catalog.get(PDFName.of("Outlines"));
@@ -400,9 +398,7 @@ async function extractAndSavePDFText(
 
   // Try to extract title from PDF outline and update bookmark title
   // if the current title looks like a filename (e.g. "2505.03275")
-  const infoTitle = pdfParse.metadata?.Title as unknown as
-    | string
-    | undefined;
+  const infoTitle = pdfParse.metadata?.Title as unknown as string | undefined;
   const outlineTitle = await extractPdfOutlineTitle(asset);
   const pdfTitle = (infoTitle && infoTitle.trim()) || outlineTitle;
   if (pdfTitle) {
