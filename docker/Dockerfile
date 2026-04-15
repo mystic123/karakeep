@@ -169,6 +169,25 @@ COPY --from=base --chown=node:node /app/apps/web/.next/static ./apps/web/.next/s
 ######################
 COPY --from=base /prod/workers /app/apps/workers
 
+# Trim runtime-only files that are not needed in the Debian/glibc image.
+RUN rm -rf \
+        /app/node_modules/@swc/core-linux-*-musl \
+        /app/node_modules/next/node_modules/@img/sharp-libvips-linuxmusl-* \
+        /app/node_modules/next/node_modules/@img/sharp-linuxmusl-* \
+        /app/apps/workers/node_modules/.pnpm/@napi-rs+canvas-linux-*-musl@* \
+        /usr/local/lib/node_modules/npm \
+        /usr/local/lib/node_modules/corepack \
+        /opt/yarn-v* \
+    && rm -f \
+        /usr/local/bin/corepack \
+        /usr/local/bin/npm \
+        /usr/local/bin/npx \
+        /usr/local/bin/pnpm \
+        /usr/local/bin/pnpx \
+        /usr/local/bin/yarn \
+        /usr/local/bin/yarnpkg \
+    && find /app/apps/workers/dist -type f -name '*.map' -delete
+
 ENTRYPOINT ["/init"]
 
 ################# The AIO ##############
