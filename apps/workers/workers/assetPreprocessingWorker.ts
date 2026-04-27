@@ -12,7 +12,7 @@ import {
 import PDFParser from "pdf2json";
 import { fromBuffer } from "pdf2pic";
 import { createWorker } from "tesseract.js";
-import { withWorkerTracing } from "workerTracing";
+import { withWorkerEventLog, withWorkerTracing } from "workerTracing";
 
 import type { AssetPreprocessingRequest } from "@karakeep/shared-server";
 import { db } from "@karakeep/db";
@@ -23,6 +23,7 @@ import {
   bookmarks,
 } from "@karakeep/db/schema";
 import {
+  addLogFields,
   AssetPreprocessingQueue,
   OpenAIQueue,
   QuotaService,
@@ -47,7 +48,10 @@ export class AssetPreprocessingWorker {
       (await getQueueClient())!.createRunner<AssetPreprocessingRequest>(
         AssetPreprocessingQueue,
         {
-          run: withWorkerTracing("assetPreprocessingWorker.run", run),
+          run: withWorkerTracing(
+            "assetPreprocessingWorker.run",
+            withWorkerEventLog("assetPreprocessingWorker.run", run),
+          ),
           onComplete: async (job) => {
             workerStatsCounter.labels("assetPreprocessing", "completed").inc();
             const jobId = job.id;
@@ -432,6 +436,7 @@ async function run(req: DequeuedJob<AssetPreprocessingRequest>) {
   const isFixMode = req.data.fixMode;
   const jobId = req.id;
   const bookmarkId = req.data.bookmarkId;
+  addLogFields<"assetPreprocessingWorker.run">({ "bookmark.id": bookmarkId });
 
   const bookmark = await db.query.bookmarks.findFirst({
     where: eq(bookmarks.id, bookmarkId),
@@ -465,6 +470,14 @@ async function run(req: DequeuedJob<AssetPreprocessingRequest>) {
       `[assetPreprocessing][${jobId}] AssetId ${bookmark.asset.assetId} for bookmark ${bookmarkId} not found`,
     );
   }
+
+  addLogFields<"assetPreprocessingWorker.run">({
+    "user.id": bookmark.userId,
+    "asset.type": bookmark.asset.assetType,
+    "asset.size": asset.length,
+    "asset.content_type": metadata.contentType,
+    "preprocessing.fix_mode": isFixMode,
+  });
 
   let anythingChanged = false;
   switch (bookmark.asset.assetType) {
@@ -500,6 +513,10 @@ async function run(req: DequeuedJob<AssetPreprocessingRequest>) {
         `[assetPreprocessing][${jobId}] Unsupported bookmark type`,
       );
   }
+
+  addLogFields<"assetPreprocessingWorker.run">({
+    "preprocessing.changed": anythingChanged,
+  });
 
   // Propagate priority to child jobs
   const enqueueOpts: EnqueueOptions = {

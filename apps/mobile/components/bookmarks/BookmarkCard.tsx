@@ -6,18 +6,15 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  Share,
   View,
 } from "react-native";
-import * as Clipboard from "expo-clipboard";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Haptics from "expo-haptics";
-import { PDFDocument } from "pdf-lib";
 import { Image } from "expo-image";
 import { router, useRouter } from "expo-router";
-import * as Sharing from "expo-sharing";
 import { Text } from "@/components/ui/Text";
 import useAppSettings from "@/lib/settings";
+import { setPdfTitle, shareBookmark } from "@/lib/shareBookmark";
 import { useMenuIconColors } from "@/lib/useMenuIconColors";
 import { buildApiHeaders } from "@/lib/utils";
 import { MenuView } from "@react-native-menu/menu";
@@ -54,20 +51,6 @@ import BookmarkAssetImage from "./BookmarkAssetImage";
 import BookmarkTextMarkdown from "./BookmarkTextMarkdown";
 import { NotePreview } from "./NotePreview";
 import TagPill from "./TagPill";
-
-async function setPdfTitle(fileUri: string, title: string) {
-  const base64 = await FileSystem.readAsStringAsync(fileUri, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
-  const pdfDoc = await PDFDocument.load(
-    Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)),
-  );
-  pdfDoc.setTitle(title);
-  const modified = await pdfDoc.saveAsBase64();
-  await FileSystem.writeAsStringAsync(fileUri, modified, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
-}
 
 function ActionBar({
   bookmark,
@@ -144,181 +127,7 @@ function ActionBar({
       ],
     );
 
-  const handleShare = async () => {
-    try {
-      switch (bookmark.content.type) {
-        case BookmarkTypes.LINK: {
-          const url = bookmark.content.url;
-          const title = bookmark.content.title;
-          const pdfAsset = bookmark.assets.find((a) => a.assetType === "pdf");
-          if (pdfAsset && (await Sharing.isAvailableAsync())) {
-            Alert.alert("Share", "How would you like to share this bookmark?", [
-              { text: "Cancel", style: "cancel" },
-              {
-                text: "Share URL",
-                onPress: async () => {
-                  await Share.share({ url, message: url });
-                },
-              },
-              {
-                text: "Share PDF",
-                onPress: async () => {
-                  try {
-                    const assetUrl = `${settings.address}/api/assets/${pdfAsset.id}`;
-                    const rawName =
-                      pdfAsset.fileName ||
-                      `${bookmark.title || title || "document"}`;
-                    const fileName = rawName.endsWith(".pdf")
-                      ? rawName
-                      : `${rawName}.pdf`;
-                    const fileUri = `${FileSystem.documentDirectory}${fileName}`;
-
-                    const downloadResult = await FileSystem.downloadAsync(
-                      assetUrl,
-                      fileUri,
-                      {
-                        headers: buildApiHeaders(
-                          settings.apiKey,
-                          settings.customHeaders,
-                        ),
-                      },
-                    );
-
-                    if (downloadResult.status === 200) {
-                      const pdfTitle = bookmark.title || title;
-                      if (pdfTitle) {
-                        await setPdfTitle(downloadResult.uri, pdfTitle);
-                      }
-                      await Sharing.shareAsync(downloadResult.uri, {
-                        mimeType: "application/pdf",
-                        UTI: "com.adobe.pdf",
-                      });
-                      await FileSystem.deleteAsync(downloadResult.uri, {
-                        idempotent: true,
-                      });
-                    } else {
-                      throw new Error("Failed to download PDF");
-                    }
-                  } catch (error) {
-                    console.error("Share PDF error:", error);
-                    toast({
-                      message: "Failed to share PDF",
-                      variant: "destructive",
-                      showProgress: false,
-                    });
-                  }
-                },
-              },
-            ]);
-          } else {
-            await Share.share({ url, message: url });
-          }
-          break;
-        }
-
-        case BookmarkTypes.TEXT:
-          await Clipboard.setStringAsync(bookmark.content.text);
-          toast({
-            message: "Text copied to clipboard",
-            showProgress: false,
-          });
-          break;
-
-        case BookmarkTypes.ASSET:
-          if (bookmark.content.assetType === "image") {
-            if (await Sharing.isAvailableAsync()) {
-              const assetUrl = `${settings.address}/api/assets/${bookmark.content.assetId}`;
-              const fileUri = `${FileSystem.documentDirectory}temp_image.jpg`;
-
-              const downloadResult = await FileSystem.downloadAsync(
-                assetUrl,
-                fileUri,
-                {
-                  headers: buildApiHeaders(
-                    settings.apiKey,
-                    settings.customHeaders,
-                  ),
-                },
-              );
-
-              if (downloadResult.status === 200) {
-                await Sharing.shareAsync(downloadResult.uri);
-                // Clean up the temporary file
-                await FileSystem.deleteAsync(downloadResult.uri, {
-                  idempotent: true,
-                });
-              } else {
-                throw new Error("Failed to download image");
-              }
-            }
-          } else if (bookmark.content.assetType === "pdf") {
-            const sourceUrl = bookmark.content.sourceUrl;
-            const assetId = bookmark.content.assetId;
-            const contentFileName = bookmark.content.fileName;
-            const sharePdf = async () => {
-              if (!(await Sharing.isAvailableAsync())) return;
-              const assetUrl = `${settings.address}/api/assets/${assetId}`;
-              const rawName = contentFileName || "document";
-              const fileName = rawName.endsWith(".pdf")
-                ? rawName
-                : `${rawName}.pdf`;
-              const fileUri = `${FileSystem.documentDirectory}${fileName}`;
-
-              const downloadResult = await FileSystem.downloadAsync(
-                assetUrl,
-                fileUri,
-                {
-                  headers: buildApiHeaders(
-                    settings.apiKey,
-                    settings.customHeaders,
-                  ),
-                },
-              );
-
-              if (downloadResult.status === 200) {
-                if (bookmark.title) {
-                  await setPdfTitle(downloadResult.uri, bookmark.title);
-                }
-                await Sharing.shareAsync(downloadResult.uri, {
-                  mimeType: "application/pdf",
-                  UTI: "com.adobe.pdf",
-                });
-                await FileSystem.deleteAsync(downloadResult.uri, {
-                  idempotent: true,
-                });
-              } else {
-                throw new Error("Failed to download PDF");
-              }
-            };
-
-            if (sourceUrl) {
-              Alert.alert("Share", "How would you like to share this PDF?", [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Share URL",
-                  onPress: () =>
-                    Share.share({ url: sourceUrl, message: sourceUrl }),
-                },
-                {
-                  text: "Share PDF",
-                  onPress: sharePdf,
-                },
-              ]);
-            } else {
-              await sharePdf();
-            }
-          }
-          break;
-      }
-    } catch (error) {
-      console.error("Share error:", error);
-      toast({
-        message: "Failed to share",
-        variant: "destructive",
-        showProgress: false,
-      });
-    }
-  };
+  const handleShare = () => shareBookmark(bookmark, settings, toast);
 
   // Build actions array based on ownership
   const menuActions = [];
