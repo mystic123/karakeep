@@ -207,7 +207,7 @@ export const zUserSettingsSchema = z.object({
   backupsFrequency: z.enum(["daily", "weekly"]),
   backupsRetentionDays: z.number().int().min(1).max(365),
   // Reader settings (nullable = opt-in, null means use client default)
-  readerFontSize: z.number().int().min(12).max(24).nullable(),
+  readerFontSize: z.number().int().min(12).max(48).nullable(),
   readerLineHeight: z.number().min(1.2).max(2.5).nullable(),
   readerFontFamily: zReaderFontFamilySchema.nullable(),
   // AI settings (nullable = opt-in, null means use server default)

@@ -16,7 +16,7 @@ export const READER_FONT_FAMILIES: Record<ZReaderFontFamily, string> = {
 
 // Setting constraints for UI controls
 export const READER_SETTING_CONSTRAINTS = {
-  fontSize: { min: 12, max: 24, step: 1 },
+  fontSize: { min: 12, max: 48, step: 1 },
   lineHeight: { min: 1.2, max: 2.5, step: 0.1 },
 } as const;
 
@@ -48,7 +48,7 @@ export function formatFontFamily(
 }
 
 export const zReaderSettings = z.object({
-  fontSize: z.number().int().min(12).max(24),
+  fontSize: z.number().int().min(12).max(48),
   lineHeight: z.number().min(1.2).max(2.5),
   fontFamily: zReaderFontFamilySchema,
 });
